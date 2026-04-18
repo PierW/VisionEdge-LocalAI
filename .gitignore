@@ -1,1 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
 video-ai-env/
+
+# Output immagini
+targhe_salvate/
+
+# Logs
+*.log
+*.csv
+
+# Mac
+.DS_Store

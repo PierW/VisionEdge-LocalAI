@@ -154,7 +154,7 @@ try:
                     roi = frame[max(0, y1):y2, max(0, x1):x2]
                     
                     if roi is not None and roi.size > 0:
-                        res_t = model_targhe(roi, conf=0.3, verbose=False)
+                        res_t = model_targhe(roi, conf=0.4, verbose=False)
                         
                         if res_t and res_t[0].boxes is not None and len(res_t[0].boxes) > 0:
                             t_box = res_t[0].boxes.xyxy.int().cpu().tolist()[0]
