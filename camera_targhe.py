@@ -206,32 +206,28 @@ try:
                 # ==========================================
                 # DISEGNO PROFESSIONALE UI
                 # ==========================================
-                color = (255, 0, 0)
+                # Colore basato sullo stato della lettura
+                color = (0, 255, 0) if obj_id in targhe_lette_per_id else (255, 0, 0)
+                label = f"ID: {obj_id} | Letti: OK" if obj_id in targhe_lette_per_id else f"ID: {obj_id} | Ricerca..."
+
                 cv2.rectangle(frame, (box[0], box[1]), (box[2], box[3]), color, 2)
 
-                # Se abbiamo letto la targa, la mostriamo a video!
-                if obj_id in targhe_lette_per_id:
-                    label = f"ID: {obj_id} | Letti: OK"
-                    color = (0, 255, 0) # Verde se letta
-                else:
-                    label = f"ID: {obj_id} | Lettura in corso..."
-                    
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 font_scale = 0.5
                 thickness = 1
-                
+
                 (w, h), baseline = cv2.getTextSize(label, font, font_scale, thickness)
-                
+
                 back_x1, back_y1 = box[0], box[1] - h - 10
                 back_x2, back_y2 = box[0] + w + 10, box[1]
-                
+
                 if back_y1 < 0:
                     back_y1, back_y2 = box[1], box[1] + h + 10
 
                 cv2.rectangle(frame, (back_x1, back_y1), (back_x2, back_y2), color, -1)
-                
+
                 text_y = back_y2 - 5 if back_y1 == box[1] else back_y2 - 7
-                cv2.putText(frame, label, (back_x1 + 5, text_y), 
+                cv2.putText(frame, label, (back_x1 + 5, text_y),
                             font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)
 
         # 3. GESTIONE CHECK-OUT
