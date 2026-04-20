@@ -17,7 +17,7 @@ L'obiettivo è il pieno controllo tecnico sulla pipeline video, ottimizzando le 
 
 Il repository include diversi script specializzati per diverse fasi di implementazione:
 
-- `main.py`: Script di base per la detection di persone in tempo reale (YOLOv8n).
+- `camera_persone.py`: Script di base per la detection di persone in tempo reale (YOLOv8n).
 - `camera_targhe.py`: Pipeline avanzata per il tracking di veicoli e rilevamento targhe.
 - `test_onvif.py`: Utility per scoprire gli indirizzi RTSP delle telecamere via protocollo ONVIF.
 - `yolov8n_plate.pt`: Modello custom ottimizzato per il rilevamento delle targhe.
@@ -69,7 +69,7 @@ python test_onvif.py
 
 ### Avvio Rilevamento Persone (Standard)
 ```bash
-python main.py
+python camera_persone.py
 ```
 
 ### Avvio Rilevamento e Tracking Targhe

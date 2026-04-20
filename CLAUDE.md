@@ -12,7 +12,7 @@ This is a person detection system using YOLOv8 that:
 
 ## Architecture
 
-### main.py
+### camera_persone.py
 Single-file application with the following components:
 
 **Initialization (lines 1-19):**
@@ -58,18 +58,18 @@ source video-ai-env/bin/Activate.ps1  # PowerShell
 source video-ai-env/bin/activate      # Bash
 
 # Run main detection script
-python main.py
+python camera_persone.py
 
 # Test ONVIF camera discovery
 python test_onvif.py
 
 # Run with specific RTSP URL
-python main.py  # Edit rtsp_url variable in main.py
+python camera_persone.py  # Edit rtsp_url variable in camera_persone.py
 ```
 
 ## Configuration
 
-Edit these variables in `main.py`:
+Edit these variables in `camera_persone.py`:
 - `rtsp_url`: RTSP stream URL (line 11)
 - `yolov8n.pt`: Model path (line 9)
 
