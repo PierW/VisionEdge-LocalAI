@@ -1,3 +1,5 @@
+.env
+
 # Python
 __pycache__/
 *.pyc
@@ -7,6 +9,9 @@ video-ai-env/
 
 # Output immagini
 targhe_salvate/
+
+# Output video
+video_salvati/
 
 # Logs
 *.log
