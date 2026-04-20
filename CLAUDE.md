@@ -34,7 +34,7 @@ Single-file application with the following components:
 7. Captures snapshots when person detected with 5s cooldown (lines 94-103)
 8. Cleans up resources on exit (lines 114-116)
 
-### onvif_test.py
+### test_onvif.py
 Utility script to discover RTSP URLs from ONVIF-compatible cameras:
 - Uses `onvif` Python library
 - Queries camera profiles via ONVIF media service
@@ -61,7 +61,7 @@ source video-ai-env/bin/activate      # Bash
 python main.py
 
 # Test ONVIF camera discovery
-python onvif_test.py
+python test_onvif.py
 
 # Run with specific RTSP URL
 python main.py  # Edit rtsp_url variable in main.py
@@ -73,7 +73,7 @@ Edit these variables in `main.py`:
 - `rtsp_url`: RTSP stream URL (line 11)
 - `yolov8n.pt`: Model path (line 9)
 
-Edit these in `onvif_test.py`:
+Edit these in `test_onvif.py`:
 - `IP`: Camera IP address (line 3)
 - `PORT`: Camera port, typically 8080, 8899, or 8000 (line 4)
 - `USER`: Camera username (line 5)

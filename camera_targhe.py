@@ -9,6 +9,9 @@ import sys
 from datetime import datetime
 from ultralytics import YOLO
 
+# Importiamo il nuovo OCR
+from fast_plate_ocr import LicensePlateRecognizer
+
 # ==========================================
 # CONFIGURAZIONE E OTTIMIZZAZIONE
 # ==========================================
@@ -19,9 +22,14 @@ BASE_SAVE_DIR = "targhe_salvate"
 LOG_FILE = "accessi_veicoli.csv"
 TIMEOUT_VEICOLO = 30  # Secondi di assenza prima del Check-out
 
-# Caricamento Modelli (Assicurati che i file .pt siano nella cartella)
+# Caricamento Modelli Visione
 model_veicoli = YOLO("yolov8n.pt").to(device)
 model_targhe = YOLO("yolov8n_plate.pt").to(device)
+
+# Caricamento Modello OCR (Usiamo la versione XS per massima velocità)
+print("⏳ Caricamento modello OCR...")
+ocr_model = LicensePlateRecognizer('cct-xs-v2-global-model')
+print("✅ OCR caricato!")
 
 # ==========================================
 # GESTIONE STREAMING (THREADING & RECONNECT)
@@ -47,7 +55,6 @@ class RTSPStreamer:
         while not self.stopped:
             ret, frame = self.cap.read()
             
-            # Gestione perdita di segnale e riconnessione
             if not ret or frame is None:
                 print("⚠️ Stream perso - riconnessione in corso...")
                 self.cap.release()
@@ -60,13 +67,11 @@ class RTSPStreamer:
                     print("❌ Riconnessione fallita, nuovo tentativo...")
                 continue
             
-            # Ridimensionamento per alleggerire l'inferenza
             frame = cv2.resize(frame, (640, 360))
 
-            # Lock per evitare conflitti con il main thread
             with self.lock:
                 self.ret = ret
-                self.frame = frame.copy() # .copy() evita corruzioni dell'immagine
+                self.frame = frame.copy()
 
     def read(self):
         with self.lock:
@@ -76,11 +81,8 @@ class RTSPStreamer:
 
     def stop(self):
         self.stopped = True
-        
-        # Chiusura sicura del thread
         if hasattr(self, 'thread') and self.thread.is_alive():
             self.thread.join(timeout=2)
-            
         if self.cap:
             self.cap.release()
 
@@ -93,13 +95,14 @@ def get_daily_dir():
     os.makedirs(path, exist_ok=True)
     return path
 
-def log_evento(veicolo_id, azione, targa_file=""):
+# Aggiornato per includere il testo della targa
+def log_evento(veicolo_id, azione, targa_file="", testo_targa="", nazione=""):
     file_exists = os.path.isfile(LOG_FILE)
     with open(LOG_FILE, mode='a', newline='') as f:
         writer = csv.writer(f)
         if not file_exists:
-            writer.writerow(["Timestamp", "ID_Veicolo", "Evento", "File_Targa"])
-        writer.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), veicolo_id, azione, targa_file])
+            writer.writerow(["Timestamp", "ID_Veicolo", "Evento", "File_Targa", "Testo_Targa", "Nazione"])
+        writer.writerow([datetime.now().strftime("%Y-%m-%d %H:%M:%S"), veicolo_id, azione, targa_file, testo_targa, nazione])
 
 # ==========================================
 # CTRL+C SAFE HANDLER
@@ -117,7 +120,9 @@ signal.signal(signal.SIGINT, signal_handler)
 # MAIN LOOP
 # ==========================================
 veicoli_attivi = {}         # {id: last_seen_timestamp}
-targhe_salvate_per_id = set() # ID che hanno già una foto targa in questa sessione
+
+# Cambiato nome per chiarezza: ora tracciamo le targhe LETTE, non solo salvate
+targhe_lette_per_id = set() 
 
 stream = RTSPStreamer(RTSP_URL)
 
@@ -128,7 +133,7 @@ try:
         ret, frame = stream.read()
         
         if frame is None:
-            time.sleep(0.01) # Evita di saturare la CPU se il frame non è ancora pronto
+            time.sleep(0.01)
             continue
 
         current_time = time.time()
@@ -146,10 +151,11 @@ try:
                     print(f"🆕 [CHECK-IN] Veicolo ID: {obj_id}")
                     log_evento(obj_id, "ENTRATA")
                 
-                veicoli_attivi[obj_id] = current_time # Aggiorna timestamp avvistamento
+                veicoli_attivi[obj_id] = current_time
                 
-                # 2. RILEVAMENTO TARGA
-                if obj_id not in targhe_salvate_per_id:
+                # 2. RILEVAMENTO E LETTURA TARGA (OCR)
+                # Continua a provare finché non otteniamo una lettura valida per questo ID
+                if obj_id not in targhe_lette_per_id:
                     x1, y1, x2, y2 = box
                     roi = frame[max(0, y1):y2, max(0, x1):x2]
                     
@@ -165,19 +171,51 @@ try:
                             if plate_crop is not None and plate_crop.size > 0:
                                 save_path = get_daily_dir()
                                 filename = f"ID_{obj_id}_{datetime.now().strftime('%H%M%S')}.jpg"
-                                cv2.imwrite(os.path.join(save_path, filename), plate_crop)
+                                full_filepath = os.path.join(save_path, filename)
                                 
-                                print(f"📸 [TARGA] Salvata per ID: {obj_id} -> {filename}")
-                                log_evento(obj_id, "TARGA_RILEVATA", filename)
-                                targhe_salvate_per_id.add(obj_id)
+                                # Salviamo temporaneamente per darla in pasto all'OCR
+                                cv2.imwrite(full_filepath, plate_crop)
+                                
+                                try:
+                                    # Esecuzione OCR
+                                    ocr_results = ocr_model.run(full_filepath)
+                                    
+                                    if ocr_results:
+                                        # Estraiamo l'oggetto della prima predizione
+                                        pred = ocr_results[0]
+                                        
+                                        testo_targa = pred.plate.upper()  # Solo 'XX123XX'
+                                        nazione = pred.region             # Solo 'Italy'
+                                        
+                                        # Filtro qualità: accettiamo solo se la targa ha almeno 5 caratteri
+                                        if len(testo_targa) >= 5:
+                                            print(f"📸 [OCR OK] ID: {obj_id} | {testo_targa} ({nazione})")
+                                            log_evento(obj_id, "TARGA_RILEVATA", filename, testo_targa, nazione)
+                                            
+                                            # Impediamo altre letture per questo veicolo
+                                            targhe_lette_per_id.add(obj_id)
+                                        else:
+                                            # Se la lettura è troppo corta, probabilmente è un errore. 
+                                            # Cancelliamo e lasciamo che il sistema riprovi al prossimo frame.
+                                            if os.path.exists(full_filepath):
+                                                os.remove(full_filepath)
+                                            
+                                except Exception as e:
+                                    print(f"⚠️ Errore OCR: {e}")
 
                 # ==========================================
                 # DISEGNO PROFESSIONALE UI
                 # ==========================================
-                color = (255, 0, 0) # Blu
+                color = (255, 0, 0)
                 cv2.rectangle(frame, (box[0], box[1]), (box[2], box[3]), color, 2)
 
-                label = f"Auto ID: {obj_id}"
+                # Se abbiamo letto la targa, la mostriamo a video!
+                if obj_id in targhe_lette_per_id:
+                    label = f"ID: {obj_id} | Letti: OK"
+                    color = (0, 255, 0) # Verde se letta
+                else:
+                    label = f"ID: {obj_id} | Lettura in corso..."
+                    
                 font = cv2.FONT_HERSHEY_SIMPLEX
                 font_scale = 0.5
                 thickness = 1
@@ -187,7 +225,6 @@ try:
                 back_x1, back_y1 = box[0], box[1] - h - 10
                 back_x2, back_y2 = box[0] + w + 10, box[1]
                 
-                # Evita che l'etichetta esca fuori dallo schermo in alto
                 if back_y1 < 0:
                     back_y1, back_y2 = box[1], box[1] + h + 10
 
@@ -206,16 +243,14 @@ try:
         for s_id in ids_da_rimuovere:
             print(f"🏁 [CHECK-OUT] Veicolo ID: {s_id} uscito.")
             log_evento(s_id, "USCITA")
-            # Metodo sicuro per rimuovere dai dizionari/set
             veicoli_attivi.pop(s_id, None)
-            targhe_salvate_per_id.discard(s_id)
+            targhe_lette_per_id.discard(s_id)
 
         # 4. OVERLAY GENERALE
-        cv2.putText(frame, f"Veicoli: {len(veicoli_attivi)}", (15, 30), 
+        cv2.putText(frame, f"Veicoli Attivi: {len(veicoli_attivi)}", (15, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
-        cv2.imshow("Monitor Check-In/Out", frame)
+        cv2.imshow("VisionEdge-LocalAI", frame)
 
-        # Chiusura con tasto 'q'
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
@@ -225,6 +260,6 @@ except Exception as e:
 finally:
     print("\n🧹 Avvio procedura di chiusura sicura...")
     stream.stop()
-    time.sleep(0.5) # Piccolo delay per permettere ai thread di morire in pace
+    time.sleep(0.5)
     cv2.destroyAllWindows()
     print("✅ Risorse liberate. Log salvato in accessi_veicoli.csv.")
