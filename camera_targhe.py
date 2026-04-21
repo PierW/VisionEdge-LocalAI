@@ -18,7 +18,7 @@ device = "mps" if torch.backends.mps.is_available() else "cpu"
 RTSP_URL = "rtsp://192.168.1.218:554/realmonitor?channel=0&stream=0.sdp"
 BASE_SAVE_DIR = "targhe_salvate"
 LOG_FILE = "accessi_veicoli.csv"
-TIMEOUT_VEICOLO = 30       # Secondi di assenza prima del Check-out
+TIMEOUT_VEICOLO = 6       # Secondi di assenza prima del Check-out
 MAX_TENTATIVI_OCR = 10     # Tentativi massimi prima di rinunciare alla lettura
 
 # Caricamento Modelli Visione
@@ -65,8 +65,6 @@ class RTSPStreamer:
                 else:
                     print("❌ Riconnessione fallita, nuovo tentativo...")
                 continue
-
-            frame = cv2.resize(frame, (640, 360))
 
             with self.lock:
                 self.ret = ret
@@ -135,7 +133,7 @@ try:
         current_time = time.time()
 
         # 1. TRACKING VEICOLI
-        results = model_veicoli.track(frame, persist=True, classes=[2, 3, 5, 7], verbose=False, conf=0.4)
+        results = model_veicoli.track(frame, persist=True, tracker="botsort_custom.yaml", classes=[2, 3, 5, 7], verbose=False, conf=0.4)
 
         if results and results[0].boxes.id is not None:
             boxes = results[0].boxes.xyxy.int().cpu().tolist()
@@ -166,13 +164,37 @@ try:
                         if res_t and res_t[0].boxes is not None and len(res_t[0].boxes) > 0:
                             t_box = res_t[0].boxes.xyxy.int().cpu().tolist()[0]
                             tx1, ty1, tx2, ty2 = t_box
-                            plate_crop = roi[max(0, ty1-5):ty2+5, max(0, tx1-5):tx2+5]
+
+                            # 1. aumenta il bordo da 5 a 15 pixel
+                            pad = 15
+                            tx1p = max(0, tx1 - pad)
+                            ty1p = max(0, ty1 - pad)
+                            tx2p = min(roi.shape[1], tx2 + pad)
+                            ty2p = min(roi.shape[0], ty2 + pad)
+                            plate_crop = roi[ty1p:ty2p, tx1p:tx2p]
 
                             if plate_crop is not None and plate_crop.size > 0:
+                                # 2. MIGLIORAMENTO QUALITA - inizia qui
+                                # ingrandisci 3 volte
+                                plate_up = cv2.resize(plate_crop, None, fx=3, fy=3, interpolation=cv2.INTER_LANCZOS4)
+                                # scala di grigi
+                                gray = cv2.cvtColor(plate_up, cv2.COLOR_BGR2GRAY)
+                                # contrasto locale
+                                clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+                                enhanced = clahe.apply(gray)
+                                # togli rumore leggero
+                                denoised = cv2.bilateralFilter(enhanced, 5, 30, 30)
+                                # sharpening
+                                blur = cv2.GaussianBlur(denoised, (0,0), 1)
+                                sharp = cv2.addWeighted(denoised, 1.5, blur, -0.5, 0)
+                                # 2. MIGLIORAMENTO QUALITA - finisce qui
+
                                 save_path = get_daily_dir()
                                 filename = f"ID_{obj_id}_{datetime.now().strftime('%H%M%S')}.jpg"
                                 full_filepath = os.path.join(save_path, filename)
-                                cv2.imwrite(full_filepath, plate_crop)
+                                # SALVI LA VERSIONE MIGLIORATA, non quella grezza
+                                cv2.imwrite(full_filepath, sharp)
+                                cv2.imwrite(full_filepath.replace('.jpg','_orig.jpg'), plate_crop)
 
                                 try:
                                     ocr_results = ocr_model.run(full_filepath)
@@ -254,6 +276,7 @@ try:
         # 5. OVERLAY GENERALE
         cv2.putText(frame, f"Veicoli Attivi: {len(veicoli_attivi)}", (15, 30),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+        frame = cv2.resize(frame, (960, 540))
         cv2.imshow("VisionEdge-LocalAI", frame)
 
         if cv2.waitKey(1) & 0xFF == ord('q'):
