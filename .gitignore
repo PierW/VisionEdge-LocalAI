@@ -19,6 +19,7 @@ video_salvati/
 # Logs
 *.log
 *.csv
+whitelist.json
 
 # Mac
 .DS_Store
