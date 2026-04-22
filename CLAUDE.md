@@ -16,26 +16,34 @@ This is a local AI video monitoring system that:
 ## Architecture
 
 ### camera_persone.py
-Single-file application for person detection:
+Single-file application for person detection with video recording:
 
-**Initialization (lines 1-19):**
+**Initialization (lines 1-42):**
 - Loads YOLOv8 nano model from `yolov8n.pt`
 - Opens RTSP stream from configured IP address
 - Exits if stream fails to open
+- Config: FRAME_SIZE (640x360), TARGET_FPS (10), FRAME_SKIP (2), PERSON_ABSENT_GRACE (2s), LOG_COOLDOWN (5s)
 
-**State Variables (lines 25-27):**
+**State Variables (lines 114-122):**
 - `frame_id`: Counter for frame tracking
-- `last_snapshot_time`: Timestamp for snapshot cooldown
+- `video_writer`: OpenCV VideoWriter for recording
+- `current_filename`: Path to current recording
+- `first_frame_of_session`: First frame for snapshot
+- `last_seen_person`: Timestamp of last person detection
+- `last_log_time`: Cooldown for logging
+- `is_recording`: Boolean flag for recording state
 
-**Main Loop (lines 32-116):**
+**Main Loop (lines 127-200):**
 1. Reads frame from RTSP stream
-2. Reconnects if stream fails (lines 39-51)
-3. Resizes frame to 640x360 for inference (line 56)
-4. Runs YOLO inference every 3rd frame for performance (lines 62-69)
-5. Detects "person" class (lines 76-84)
-6. Displays frame preview (lines 89, 108)
-7. Captures snapshots when person detected with 5s cooldown (lines 94-103)
-8. Cleans up resources on exit (lines 114-116)
+2. Reconnects if stream fails (lines 131-138)
+3. Resizes frame to 640x360 for inference (line 140)
+4. Runs YOLO inference every 2nd frame (FRAME_SKIP=2) (line 144)
+5. Detects "person" class (lines 150-154)
+6. Starts recording when person detected (lines 167-171)
+7. Stops recording after PERSON_ABSENT_GRACE seconds (lines 175-181)
+8. Writes all frames to video (line 185)
+9. Displays REC/LIVE indicator (lines 189-195)
+10. Captures snapshot on close and sends to Telegram (lines 94, 207)
 
 ### camera_targhe.py
 Advanced vehicle tracking and license plate recognition:

@@ -64,6 +64,7 @@ def add_or_update(targa: str, nome: str, autorizzato: bool):
             "autorizzato": autorizzato,
             "prima_vista": now,
             "ultimo_accesso": now,
+            "ultima_uscita": None,
         }
     else:
         db[targa]["nome"]         = nome
@@ -78,6 +79,13 @@ def update_ultimo_accesso(targa: str):
     db = _load()
     if targa in db:
         db[targa]["ultimo_accesso"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        _save(db)
+
+
+def update_ultima_uscita(targa: str):
+    db = _load()
+    if targa in db:
+        db[targa]["ultima_uscita"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         _save(db)
 
 

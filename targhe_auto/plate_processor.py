@@ -41,29 +41,31 @@ def _analizza(gray: np.ndarray) -> dict:
 
 
 def _is_night(metrics: dict) -> bool:
-    if metrics["brightness"] < 80 or metrics["noise"] > 14 or metrics["contrast"] < 30:
-        return True
+    # Priorità all'orario
     ora = datetime.now().hour
-    return not (ORA_GIORNO[0] <= ora < ORA_GIORNO[1])
+    is_ora_notte = not (ORA_GIORNO[0] <= ora < ORA_GIORNO[1])
+    
+    # Se è orario diurno, passa a notte SOLO se è estremamente buio
+    if not is_ora_notte and metrics["brightness"] < 40:
+        return True
+        
+    return is_ora_notte
 
 
 # ─── Varianti di preprocessing ────────────────────────────────────────────────
 
-def _variant_day_a(gray: np.ndarray) -> np.ndarray:
-    """Diurna principale: CLAHE moderato + sharpening deciso."""
+def _variant_day_a(img: np.ndarray) -> np.ndarray:
+    """Diurna principale: Originale a colori (solo ridimensionato in processa_targa)."""
+    return img
+
+
+def _variant_day_b(gray: np.ndarray) -> np.ndarray:
+    """Diurna alternativa: CLAHE moderato + sharpening deciso."""
     clahe    = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     enhanced = clahe.apply(gray)
     denoised = cv2.bilateralFilter(enhanced, 5, 20, 20)
     blur     = cv2.GaussianBlur(denoised, (0, 0), 1)
     return cv2.addWeighted(denoised, 1.5, blur, -0.5, 0)
-
-
-def _variant_day_b(gray: np.ndarray) -> np.ndarray:
-    """Diurna alternativa: CLAHE più forte, sharpening conservativo."""
-    clahe    = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(6, 6))
-    enhanced = clahe.apply(gray)
-    blur     = cv2.GaussianBlur(enhanced, (0, 0), 0.8)
-    return cv2.addWeighted(enhanced, 1.3, blur, -0.3, 0)
 
 
 def _variant_night_a(gray: np.ndarray) -> np.ndarray:
@@ -139,23 +141,22 @@ def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tup
 # ─── API pubblica ─────────────────────────────────────────────────────────────
 
 def processa_targa(plate_crop_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray, str, dict]:
-    """
-    Riceve il crop BGR della targa (già paddato).
-    Ritorna (variant_a, variant_b, modalita, metrics).
-
-    variant_a / variant_b  — grayscale preprocessate, pronte per ocr_ensemble()
-    modalita               — 'diurna' | 'notturna'  (per log/debug)
-    metrics                — dict brightness/contrast/noise (per debug)
-    """
+    # 1. Upscale (mantenendo i colori BGR)
     plate_up = cv2.resize(
         plate_crop_bgr, None,
         fx=PLATE_UPSCALE, fy=PLATE_UPSCALE,
         interpolation=cv2.INTER_LANCZOS4,
     )
-    gray    = cv2.cvtColor(plate_up, cv2.COLOR_BGR2GRAY)
+    
+    # 2. Crea la versione in grigio (serve per analizzare la luminosità e per le altre varianti)
+    gray = cv2.cvtColor(plate_up, cv2.COLOR_BGR2GRAY)
     metrics = _analizza(gray)
 
     if _is_night(metrics):
+        # Di notte usiamo le versioni in bianco e nero potenziate (denoising, CLAHE)
         return _variant_night_a(gray), _variant_night_b(gray), "notturna", metrics
     else:
-        return _variant_day_a(gray), _variant_day_b(gray), "diurna", metrics
+        # DI GIORNO: 
+        # Variante A -> riceve 'plate_up' (A COLORI)
+        # Variante B -> riceve 'gray' (elaborata con CLAHE/sharpening)
+        return _variant_day_a(plate_up), _variant_day_b(gray), "diurna", metrics

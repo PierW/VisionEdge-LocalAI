@@ -43,12 +43,69 @@ _state_lock         = threading.Lock()
 veicoli_attivi      = {}
 targhe_lette_per_id = {}
 targa_per_id        = {}
+candidati_per_id    = {}  # { obj_id: [ {targa, nazione, conf, file_orig, file_proc}, ... ] }
 notifiche_inviate   = set()
 action_eseguita     = set()
 
 # ==========================================
-# STREAMING RTSP
+# UTILS
 # ==========================================
+def finalize_best_candidate(obj_id: int):
+    """
+    Analizza i candidati raccolti e sceglie il migliore.
+    Ritorna (targa, nazione, conf, file_orig, file_proc) o None.
+    """
+    with _state_lock:
+        lista = candidati_per_id.get(obj_id, [])
+
+    if not lista:
+        return None
+
+    # 1. Conta frequenze
+    frequenze = {}
+    for c in lista:
+        t = c['targa']
+        frequenze[t] = frequenze.get(t, 0) + 1
+
+    # 2. Trova la targa più frequente
+    max_freq = max(frequenze.values())
+    most_frequent_plates = [t for t, f in frequenze.items() if f == max_freq]
+
+    # 3. Tra le più frequenti, prendi quella con conf media più alta
+    best_targa = None
+    best_avg_conf = -1.0
+
+    for t in most_frequent_plates:
+        confs = [c['conf'] for c in lista if c['targa'] == t]
+        avg_conf = sum(confs) / len(confs)
+        if avg_conf > best_avg_conf:
+            best_avg_conf = avg_conf
+            best_targa = t
+
+    # 4. Recupera i dettagli del migliore (quello con conf assoluta più alta per quella targa)
+    best_info = max([c for c in lista if c['targa'] == best_targa], key=lambda x: x['conf'])
+
+    # Debug in terminale
+    print(f"\n🏆 [FINALIZER] ID:{obj_id} | Vincitore: {best_targa} (freq:{max_freq}, conf_avg:{best_avg_conf:.2f})")
+    print(f"📊 Tutti i tentativi per ID:{obj_id}:")
+    for i, c in enumerate(lista):
+        print(f"   [{i+1}] {c['targa']} | conf: {c['conf']:.2f} | {c['modalita']}")
+    print("")
+
+    # 5. Pulizia file: tieni solo l'originale del vincitore (o sposta se serve)
+    # Per ora lasciamo che i file restino lì, ma in produzione potremmo cancellare gli altri.
+    # Utente ha chiesto: "keep in the folder only the image that had the highest confidence score"
+    for c in lista:
+        if c['file_orig'] != best_info['file_orig'] and os.path.exists(c['file_orig']):
+            try: os.remove(c['file_orig'])
+            except: pass
+        if c['file_proc'] != best_info['file_proc'] and os.path.exists(c['file_proc']):
+            try: os.remove(c['file_proc'])
+            except: pass
+
+    return (best_info['targa'], best_info['nazione'], best_info['conf'], 
+            best_info['file_orig'], best_info['file_proc'], best_info['modalita'])
+
 class RTSPStreamer:
     def __init__(self, url: str):
         self.url     = url
@@ -210,10 +267,16 @@ try:
                 with _state_lock:
                     stato              = targhe_lette_per_id.get(obj_id)
                     targa_ok           = stato == 'OK'
-                    tentativi          = stato if isinstance(stato, int) else 0
-                    tentativi_esauriti = isinstance(stato, int) and stato >= cfg.MAX_TENTATIVI_OCR
+                    tentativi_falliti  = stato if isinstance(stato, int) else 0
+                    
+                    candidati = candidati_per_id.get(obj_id, [])
+                    num_candidati = len(candidati)
+                    
+                    da_elaborare = (not targa_ok and 
+                                   num_candidati < cfg.MAX_CANDIDATI and 
+                                   tentativi_falliti < cfg.MAX_TENTATIVI_OCR)
 
-                if not targa_ok and not tentativi_esauriti:
+                if da_elaborare:
                     x1, y1, x2, y2 = box
                     roi = frame[max(0, y1):y2, max(0, x1):x2]
 
@@ -232,22 +295,11 @@ try:
                                 # Pre-processing adattivo → 2 varianti
                                 va, vb, modalita, metrics = processa_targa(plate_crop)
 
-                                print(
-                                    f"🔬 [PP/{modalita}] ID:{obj_id} "
-                                    f"bright={metrics['brightness']:.0f} "
-                                    f"contrast={metrics['contrast']:.0f} "
-                                    f"noise={metrics['noise']:.0f}"
-                                )
-
                                 # Ensemble OCR: 2 varianti preprocessate → vince la confidence più alta
                                 testo_targa, nazione, conf, variante_vincente = ocr_ensemble(ocr_model, va, vb)
 
                                 if testo_targa:
-                                    print(f"📸 [OCR/{modalita}] ID:{obj_id} | {testo_targa} ({nazione}) conf={conf:.2f}")
-
-                                    # Salva su disco solo quando OCR ha successo → meno file
-                                    # orig = crop grezzo (per consultazione umana e per alert Telegram)
-                                    # proc = variante che ha vinto l'ensemble (per debug preprocessing)
+                                    # Salva temporaneamente per debug/collezione
                                     save_dir      = get_daily_dir()
                                     ts            = datetime.now().strftime('%H%M%S%f')
                                     filename      = f"ID_{obj_id}_{ts}_{modalita}.jpg"
@@ -256,63 +308,86 @@ try:
                                     cv2.imwrite(orig_filepath, plate_crop)
                                     if variante_vincente is not None:
                                         cv2.imwrite(proc_filepath, variante_vincente)
-
-                                    entry = wl.get_entry(testo_targa)
-
-                                    if entry:
-                                        nome        = entry["nome"]
-                                        autorizzato = entry["autorizzato"]
-                                        wl.update_ultimo_accesso(testo_targa)
-                                        log_evento(obj_id, "TARGA_RILEVATA", filename,
-                                                   testo_targa, nazione, nome, modalita, conf)
-
-                                        if autorizzato:
-                                            print(f"✅ [AUTH] {nome} ({testo_targa})")
-                                            tg.send_message(
-                                                f"✅ *{nome}* ha effettuato il *check-in*\n"
-                                                f"🚗 `{testo_targa}` — conf: {conf:.0%}"
-                                            )
-                                            with _state_lock:
-                                                already = obj_id in action_eseguita
-                                            if not already:
-                                                esegui_action(testo_targa, nome)
-                                                with _state_lock:
-                                                    action_eseguita.add(obj_id)
-                                        else:
-                                            print(f"🚫 [DENIED] {nome} ({testo_targa})")
-                                            tg.send_message(
-                                                f"🚫 *{nome}* (`{testo_targa}`) — accesso *negato*."
-                                            )
                                     else:
-                                        # Targa sconosciuta
-                                        log_evento(obj_id, "TARGA_SCONOSCIUTA", filename,
-                                                   testo_targa, nazione, "", modalita, conf)
-                                        with _state_lock:
-                                            gia_notificata = (
-                                                testo_targa in notifiche_inviate
-                                                or tg.is_skippata(testo_targa)
-                                            )
-                                        if not gia_notificata:
-                                            print(f"🔔 [TG] Alert sconosciuta: {testo_targa} conf={conf:.2f}")
-                                            tg.send_unknown_plate_alert(testo_targa, orig_filepath)
-                                            with _state_lock:
-                                                notifiche_inviate.add(testo_targa)
+                                        proc_filepath = orig_filepath
 
                                     with _state_lock:
-                                        targhe_lette_per_id[obj_id] = 'OK'
-                                        targa_per_id[obj_id]        = testo_targa
+                                        if obj_id not in candidati_per_id:
+                                            candidati_per_id[obj_id] = []
+                                        candidati_per_id[obj_id].append({
+                                            'targa': testo_targa,
+                                            'nazione': nazione,
+                                            'conf': conf,
+                                            'file_orig': orig_filepath,
+                                            'file_proc': proc_filepath,
+                                            'modalita': modalita
+                                        })
+                                        num_candidati = len(candidati_per_id[obj_id])
+
+                                    print(f"📸 [OCR/{modalita}] ID:{obj_id} | {testo_targa} ({num_candidati}/{cfg.MAX_CANDIDATI}) conf={conf:.2f}")
+
+                                    # Se abbiamo raggiunto il numero desiderato, finalizziamo subito
+                                    if num_candidati >= cfg.MAX_CANDIDATI:
+                                        res_final = finalize_best_candidate(obj_id)
+                                        if res_final:
+                                            best_t, best_n, best_c, best_orig, best_proc, best_mod = res_final
+                                            
+                                            entry = wl.get_entry(best_t)
+                                            if entry:
+                                                nome        = entry["nome"]
+                                                autorizzato = entry["autorizzato"]
+                                                wl.update_ultimo_accesso(best_t)
+                                                log_evento(obj_id, "TARGA_RILEVATA", os.path.basename(best_proc),
+                                                           best_t, best_n, nome, best_mod, best_c)
+
+                                                if autorizzato:
+                                                    print(f"✅ [AUTH] {nome} ({best_t})")
+                                                    tg.send_message(
+                                                        f"✅ *{nome}* ha effettuato il *check-in*\n"
+                                                        f"🚗 `{best_t}` — conf: {best_c:.0%}"
+                                                    )
+                                                    with _state_lock:
+                                                        already = obj_id in action_eseguita
+                                                    if not already:
+                                                        esegui_action(best_t, nome)
+                                                        with _state_lock:
+                                                            action_eseguita.add(obj_id)
+                                                else:
+                                                    print(f"🚫 [DENIED] {nome} ({best_t})")
+                                                    tg.send_message(
+                                                        f"🚫 *{nome}* (`{best_t}`) — accesso *negato*."
+                                                    )
+                                            else:
+                                                log_evento(obj_id, "TARGA_SCONOSCIUTA", os.path.basename(best_proc),
+                                                           best_t, best_n, "", best_mod, best_c)
+                                                with _state_lock:
+                                                    gia_notificata = (
+                                                        best_t in notifiche_inviate
+                                                        or tg.is_skippata(best_t)
+                                                    )
+                                                if not gia_notificata:
+                                                    print(f"🔔 [TG] Alert sconosciuta: {best_t} conf={best_c:.2f}")
+                                                    tg.send_unknown_plate_alert(best_t, best_orig)
+                                                    with _state_lock:
+                                                        notifiche_inviate.add(best_t)
+
+                                            with _state_lock:
+                                                targhe_lette_per_id[obj_id] = 'OK'
+                                                targa_per_id[obj_id]        = best_t
                                 else:
                                     # Nessuna lettura valida da entrambe le varianti
                                     with _state_lock:
-                                        targhe_lette_per_id[obj_id] = tentativi + 1
+                                        targhe_lette_per_id[obj_id] = tentativi_falliti + 1
                         else:
                             with _state_lock:
-                                targhe_lette_per_id[obj_id] = tentativi + 1
+                                targhe_lette_per_id[obj_id] = tentativi_falliti + 1
 
                 # ── 3. UI ─────────────────────────────────────────────────────
                 with _state_lock:
                     stato_ui  = targhe_lette_per_id.get(obj_id)
                     targa_str = targa_per_id.get(obj_id, "")
+                    candidati = candidati_per_id.get(obj_id, [])
+                    num_candidati = len(candidati)
 
                 letta_ok_ui = stato_ui == 'OK'
                 esauriti_ui = isinstance(stato_ui, int) and stato_ui >= cfg.MAX_TENTATIVI_OCR
@@ -320,17 +395,16 @@ try:
                 if letta_ok_ui:
                     entry = wl.get_entry(targa_str) if targa_str else None
                     if entry and entry["autorizzato"]:
-                        color, label = (0, 220, 0),   f"ID:{obj_id} ✅ {entry['nome']}"
+                        color, label = (0, 220, 0),   f"ID:{obj_id} [OK] {entry['nome']}"
                     elif entry:
-                        color, label = (0, 0, 220),   f"ID:{obj_id} 🚫 {entry['nome']}"
+                        color, label = (0, 0, 220),   f"ID:{obj_id} [NO] {entry['nome']}"
                     else:
-                        color, label = (200, 200, 0), f"ID:{obj_id} ❓ {targa_str}"
+                        color, label = (200, 200, 0), f"ID:{obj_id} [?] {targa_str}"
                 elif esauriti_ui:
                     color, label = (0, 165, 255), f"ID:{obj_id} | Non leggibile"
                 else:
-                    # Mostra tentativi rimasti per debug visivo
-                    rim = cfg.MAX_TENTATIVI_OCR - (stato_ui or 0)
-                    color, label = (255, 100, 0), f"ID:{obj_id} | Ricerca ({rim})"
+                    # Mostra progresso raccolta frame
+                    color, label = (255, 100, 0), f"ID:{obj_id} | Lettura ({num_candidati}/{cfg.MAX_CANDIDATI})"
 
                 cv2.rectangle(frame, (box[0], box[1]), (box[2], box[3]), color, 2)
                 font = cv2.FONT_HERSHEY_SIMPLEX
@@ -348,11 +422,30 @@ try:
                       if current_time - t > cfg.TIMEOUT_VEICOLO]
 
         for s_id in usciti:
+            # Se il veicolo esce e avevamo dei candidati ma non abbiamo ancora finalizzato 'OK'
+            with _state_lock:
+                gia_ok = targhe_lette_per_id.get(s_id) == 'OK'
+                ha_candidati = len(candidati_per_id.get(s_id, [])) > 0
+            
+            if not gia_ok and ha_candidati:
+                print(f"⌛ [TIMEOUT] ID:{s_id} uscito prima di {cfg.MAX_CANDIDATI} frame. Finalizzo il meglio che ho...")
+                res_final = finalize_best_candidate(s_id)
+                if res_final:
+                    best_t, best_n, best_c, best_orig, best_proc, best_mod = res_final
+                    # Log evento finale (se non già fatto)
+                    entry = wl.get_entry(best_t)
+                    nome = entry["nome"] if entry else "Sconosciuto"
+                    log_evento(s_id, "TARGA_RILEVATA_TIMEOUT", os.path.basename(best_proc),
+                               best_t, best_n, nome, best_mod, best_c)
+                    with _state_lock:
+                        targa_per_id[s_id] = best_t
+
             with _state_lock:
                 t_uscita = targa_per_id.get(s_id, "")
                 veicoli_attivi.pop(s_id, None)
                 targhe_lette_per_id.pop(s_id, None)
                 targa_per_id.pop(s_id, None)
+                candidati_per_id.pop(s_id, None) # Pulisce la collezione
                 action_eseguita.discard(s_id)
                 notifiche_inviate.discard(t_uscita)
 
@@ -363,6 +456,8 @@ try:
             log_evento(s_id, "USCITA", testo_targa=label, nome_proprietario=nome)
 
             if entry:
+                if t_uscita:
+                    wl.update_ultima_uscita(t_uscita)
                 e = "✅" if entry["autorizzato"] else "🚫"
                 tg.send_message(f"{e} *{nome}* check-out\n🚗 `{label}`")
 
