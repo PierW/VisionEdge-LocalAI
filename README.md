@@ -1,137 +1,258 @@
-# 👁️ VisionEdge-LocalAI
+# VisionEdge-LocalAI
 
-## 📌 Overview
-Questo repository nasce come framework per trasformare comuni telecamere domestiche economiche in sistemi di monitoraggio intelligenti, operando interamente **offline e in locale**.
+## Overview
 
-L'obiettivo è il pieno controllo tecnico sulla pipeline video, ottimizzando le risorse per hardware come MacBook (M-series) o Raspberry Pi, evitando il transito di dati su server cloud esterni.
+Sistema di monitoraggio video locale con AI per il rilevamento di persone e veicoli, tracciamento con ID persistenti, riconoscimento targhe OCR e gestione whitelist via Telegram.
 
-### ✨ Caratteristiche Tecniche
-- **Efficienza:** Analisi a 10fps (su stream a 30fps) per ridurre il carico CPU/GPU.
-- **Hardware Agnostic:** Supporto Apple Metal (MPS) per accelerazione GPU su Mac.
-- **Resilienza:** Gestione automatica delle riconnessioni agli stream RTSP con thread dedicato.
-- **Privacy-First:** Nessun dato lascia la rete locale.
-- **Tracking Multi-Oggetto:** Tracciamento persistente dei veicoli con ID univoci.
-- **Gestione Stato OCR:** Controllo tentativi massimi per evitare loop infiniti.
-- **Logging CSV:** Registrazione completa di tutti gli eventi (ENTRATA/USCITA/TARGA_RILEVATA).
+### Caratteristiche Principali
 
----
-
-## 📂 Struttura del Progetto
-
-Il repository include diversi script specializzati per diverse fasi di implementazione:
-
-- `camera_persone.py`: Script di base per la detection di persone in tempo reale (YOLOv8n).
-- `camera_targhe.py`: Pipeline avanzata per il tracking di veicoli e rilevamento targhe con OCR.
-- `test_onvif.py`: Utility per scoprire gli indirizzi RTSP delle telecamere via protocollo ONVIF.
-- `test_ocr.py`: Utility per testare il modello OCR su immagini singole.
-- `yolov8n_plate.pt`: Modello custom ottimizzato per il rilevamento delle targhe.
+- **Rilevamento Persone:** Detection in tempo reale con registrazione video e notifiche Telegram
+- **Conteggio Persone:** Conteggio attraverso linea virtuale con log dettagliati
+- **Tracciamento Veicoli:** BoT-SORT tracking con ID persistenti, timeout automatico (6s)
+- **Riconoscimento Targhe:** OCR adattivo giorno/notte con ensemble voting
+- **Gestione Whitelist:** Database JSON con autorizzazioni e storico accessi
+- **Telegram Bot:** Interazione per autorizzare/negare veicoli sconosciuti
+- **Privacy-First:** Tutto offline, nessun dato cloud
+- **Hardware Optimized:** Apple Metal (MPS) acceleration per Mac
 
 ---
 
-## 🧠 Modelli e Riconoscimenti
+## Struttura del Progetto
 
-Il rilevamento delle targhe utilizza un modello custom basato su YOLOv8n.
-- **Modello Attuale:** Basato sull'addestramento di [PierW/plate-detection-yolov8](https://github.com/PierW/plate-detection-yolov8).
-- **Nota Storica:** Nelle fasi iniziali è stato testato il modello `yolov8n_plate_BAK` derivato dal repository di [mendez-luisjose](https://github.com/mendez-luisjose/License-Plate-Detection-with-YoloV8-and-EasyOCR).
+### Moduli Principali
+
+| File/Directory | Descrizione |
+|----------------|-------------|
+| `camera_persone.py` | Rilevamento persone con registrazione video e Telegram |
+| `camera_conteggio_persone.py` | Conteggio persone con linea virtuale |
+| `targhe_auto/main.py` | Tracking veicoli + OCR targhe + whitelist + Telegram |
+| `targhe_auto/config.py` | Configurazione modulare |
+| `targhe_auto/plate_processor.py` | Preprocessing adattivo + ensemble OCR |
+| `targhe_auto/telegram_bot.py` | Bot Telegram per autorizzazione |
+| `targhe_auto/whitelist_manager.py` | Gestione database veicoli |
+| `test_onvif.py` | Utility per scoprire RTSP URL |
+| `test_ocr.py` | Test OCR su immagini singole |
+| `botsort_custom.yaml` | Configurazione BoT-SORT tracker |
 
 ---
 
-## ⚙️ Setup e Installazione
+## Configurazione
 
-### 1. Clona il repository
+### Variabili d'ambiente (.env)
+
+```env
+TELEGRAM_TOKEN=your_token_here
+TELEGRAM_CHAT_ID=your_chat_id_here
+RTSP_URL_TARGHE=rtsp://your_camera_ip:port/stream
+```
+
+### targhe_auto/config.py
+
+```python
+DEVICE = "mps" or "cpu"
+TIMEOUT_VEICOLO = 6  # secondi per check-out
+MAX_TENTATIVI_OCR = 10
+MAX_CANDIDATI = 4
+CONF_VEICOLI = 0.4
+CONF_TARGA = 0.4
+ORA_GIORNO = (7, 20)  # giorno/notte
+```
+
+### botsort_custom.yaml
+
+```yaml
+tracker_type: botsort
+track_high_thresh: 0.45
+track_low_thresh: 0.1
+new_track_thresh: 0.5
+track_buffer: 90
+match_thresh: 0.7
+fuse_score: True
+with_reid: True
+proximity_thresh: 0.5
+appearance_thresh: 0.4
+```
+
+---
+
+## Uso
+
+### 1. Setup
+
 ```bash
+# Clona e crea ambiente virtuale
 git clone https://github.com/PierW/VisionEdge-LocalAI.git
 cd VisionEdge-LocalAI
-```
-
-### 2. Crea ambiente virtuale
-```bash
 python3 -m venv video-ai-env
 source video-ai-env/bin/activate
-```
-
-### 3. Installa dipendenze
-```bash
 pip install -r requirements.txt
+
+# Configura .env con TELEGRAM_TOKEN e TELEGRAM_CHAT_ID
 ```
 
-### 4. Gestione Ambiente
-Al termine della sessione, disattivare l'ambiente:
-```bash
-deactivate
-```
+### 2. Rilevamento Persone
 
----
-
-## 🚀 Utilizzo
-
-### Configurazione Camera
-Usa il test ONVIF per trovare l'URL corretto della tua camera:
-```bash
-python test_onvif.py
-```
-
-### Avvio Rilevamento Persone (Standard)
 ```bash
 python camera_persone.py
 ```
 
-### Avvio Rilevamento e Tracking Targhe
+**Funzionalità:**
+- Detection YOLOv8 person class
+- Registrazione video quando persona rilevata
+- Chiusura automatico dopo 2s di assenza
+- Snapshot inviato su Telegram
+- Indicatori REC/LIVE
+
+### 3. Conteggio Persone
+
 ```bash
-python camera_targhe.py
+python camera_conteggio_persone.py
+```
+
+**Funzionalità:**
+- Linea virtuale al 50% dell'altezza frame
+- Validazione crossing con storico posizione
+- Log dettagliati in `conteggio_log/passaggi.csv`
+- Riepilogo Telegram ogni 60 secondi
+
+### 4. Tracking Veicoli e OCR Targhe
+
+```bash
+python targhe_auto/main.py
+```
+
+**Flusso:**
+
+1. **Check-in:** Veicolo rilevato → log ENTRATA
+2. **OCR:** Max 4 candidati per veicolo → ensemble voting
+3. **Whitelist check:**
+   - Autorizzato → accesso + notifica
+   - Non autorizzato → alert Telegram con bottoni
+   - Sconosciuto → alert Telegram
+4. **Check-out:** Timeout 6s → log USCITA
+
+**Telegram Bot:**
+- `/stato` → mostra veicoli nel garage
+- Alert sconosciuta → 4 bottoni:
+  - ✅ Autorizza → chiedi nome → salva whitelist
+  - ❌ Nega → chiedi nome → salva whitelist
+  - ⏭ Skippa → ignora sessione
+  - ✏️ Modifica targa → chiedi targa corretta → nuovi bottoni
+
+---
+
+## Whitelist JSON
+
+Struttura file `targhe_auto/whitelist.json`:
+
+```json
+{
+  "AB123CD": {
+    "targa": "AB123CD",
+    "nome": "Mario Rossi",
+    "autorizzato": true,
+    "prima_vista": "2026-01-15 10:30:00",
+    "ultimo_accesso": "2026-01-20 08:00:00",
+    "ultima_uscita": "2026-01-20 18:00:00"
+  }
+}
 ```
 
 ---
 
-## 🎯 Funzionalità camera_targhe.py
+## OCR Adattivo
 
-### Tracking Veicoli
-- Rilevamento veicoli (classe: auto, moto, furgone, bus)
-- Tracciamento persistente con ID univoci per ogni frame
-- Timeout automatico per check-out (configurabile: 30 secondi default)
+### Rilevamento Giorno/Notte
 
-### Rilevamento Targhe con OCR
-- Crop intelligente della regione di interesse (ROI) dalla targa
-- Salvataggio immagini delle targhe per data
-- OCR con modello `cct-xs-v2-global-model` per estrazione testo
-- Rilevamento nazione/regione
+Criterio triplo (basta uno scatta):
+- `brightness < 80` → immagine scura
+- `noise > 14` → alto rumore (ISO alto)
+- `contrast < 30` → basso contrasto
 
-### Gestione Errori OCR
-- Tentativi massimi configurabili (`MAX_TENTATIVI_OCR = 10`)
-- Conteggio fallimenti per evitare loop infiniti
-- Pulizia automatica file immagine se tentativi esauriti
-- Logging eventi nel CSV con stato di ogni tentativo
+### Preprocessing Variants
 
-### Logging Eventi
-File: `accessi_veicoli.csv`
+**Giorno:**
+- `day_a`: Originale a colori
+- `day_b`: CLAHE + sharpening
 
-Colonne:
-- Timestamp
-- ID_Veicolo
-- Evento (ENTRATA/USCITA/TARGA_RILEVATA)
-- File_Targa
-- Testo_Targa
-- Nazione
+**Notte:**
+- `night_a`: Denoising + CLAHE + gamma + sharpening
+- `night_b`: Denoising aggressivo + CLAHE (no gamma)
+
+### Ensemble OCR
+
+- OCR su entrambe le varianti
+- Vince la variante con confidence più alta
+- Confidence = mean(char_probs)
+- File temporanei puliti automaticamente
 
 ---
 
-## 🧪 Roadmap e Sviluppi Prossimi
+## Logging CSV
 
-- [ ] **LLM Integration:** Analisi contestuale degli eventi tramite modelli linguistici locali
-- [ ] **Web Dashboard:** Interfaccia leggera per il monitoraggio live
-- [ ] **Deduplicazione:** Logica per evitare salvataggi multipli della stessa targa/persona
-- [ ] **Regole business:** Integrazione con database per validazione targhe
-- [ ] **Notifiche:** Alert via email/SMS/Telegram per eventi importanti
+### targhe_auto/accessi_veicoli.csv
+
+| Colonna | Descrizione |
+|---------|-------------|
+| Timestamp | Data/ora |
+| ID_Veicolo | BoT-SORT object ID |
+| Evento | ENTRATA/USCITA/TARGA_RILEVATA/TARGA_SCONOSCIUTA |
+| File_Targa | Nome file immagine |
+| Testo_Targa | Targa letta |
+| Nazione | Regione/nazione |
+| Proprietario | Nome dal whitelist |
+| Modalita_OCR | diurna/notturna |
+| Confidence | Score OCR |
+
+### conteggio_log/passaggi.csv
+
+| Colonna | Descrizione |
+|---------|-------------|
+| Timestamp | Data/ora |
+| Evento | CHECK-IN/CHECK-OUT |
+| ID | Object ID |
+| Totale_IN | Totali ingressi |
+| Totale_OUT | Totali uscite |
+| Presenti | Attualmente presenti |
 
 ---
 
-## 🧹 File esclusi da Git
+## API Whitelist
+
+```python
+from whitelist_manager import (
+    is_known,      # targa presente?
+    is_authorized, # targa autorizzata?
+    get_entry,     # ottieni entry
+    add_or_update, # aggiungi/aggiorna
+    update_ultimo_accesso,
+    update_ultima_uscita,
+    list_all
+)
+```
+
+---
+
+## Roadmap
+
+- [ ] **LLM Integration:** Analisi contestuale eventi
+- [ ] **Web Dashboard:** Monitoraggio live
+- [ ] **Deduplicazione:** Evita salvataggi multipli
+- [ ] **Regole business:** Validazione targhe DB
+- [ ] **Notifiche:** Email/SMS/Telegram alert
+
+---
+
+## File Esclusi da Git
+
 - `video-ai-env/` (ambiente virtuale)
-- `targhe_salvate/` (output delle immagini catturate)
-- `accessi_veicoli.csv` (log eventi)
+- `targhe_auto/targhe_salvate/` (immagini catturate)
+- `targhe_auto/accessi_veicoli.csv` (log)
+- `conteggio_log/` (log conteggio)
 - `__pycache__`
 
 ---
 
-## 📜 Licenza
+## Licenza
+
 Uso personale / Sperimentale
