@@ -1,0 +1,10 @@
+# Garage Checker Requirements
+numpy
+opencv-python
+torch
+torchvision
+ultralytics
+fast-plate-ocr
+python-dotenv
+python-telegram-bot
+PyYAML
