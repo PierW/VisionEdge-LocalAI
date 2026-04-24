@@ -19,7 +19,7 @@ Sistema di monitoraggio video locale con AI per il rilevamento di persone e veic
 
 ## Struttura del Progetto
 
-Il sistema è composto da **4 script principali** indipendenti:
+Il sistema è composto da **4 moduli principali** indipendenti:
 
 ### 1. targhe_auto/main.py - Rilevamento Veicoli con OCR
 Monitora veicoli in transito con riconoscimento targhe automatico.
@@ -51,7 +51,7 @@ Monitora posti auto specifici nel garage senza OCR.
 
 ---
 
-### 3. camera_persone.py - Rilevamento Persone
+### 3. camera_persone/ - Rilevamento Persone
 Rileva persone nella scena video con registrazione.
 
 **Caratteristiche:**
@@ -61,17 +61,21 @@ Rileva persone nella scena video con registrazione.
 - Chiusura registrazione dopo 2s di assenza
 - Indicatori REC/LIVE
 
+**Configurazione:** [camera_persone/config.py](camera_persone/config.py)
+
 ---
 
-### 4. camera_conteggio_persone.py - Conteggio Persone
+### 4. camera_conteggio/ - Conteggio Persone
 Conta persone che attraversano una linea virtuale.
 
-**Caratteristicä:**
+**Caratteristiche:**
 - Linea virtuale configurabile (default 50% altezza)
 - Validazione crossing con storico posizione
 - Check-in (entrata) e Check-out (uscita)
 - Log dettagliati in CSV
 - Riepilogo Telegram ogni 60 secondi
+
+**Configurazione:** [camera_conteggio/config.py](camera_conteggio/config.py)
 
 ---
 
@@ -85,6 +89,11 @@ Conta persone che attraversano una linea virtuale.
 | `targhe_auto/whitelist_manager.py` | Gestione database veicoli |
 | `garage_checker/roi_detector.py` | Rilevamento ROI |
 | `garage_checker/roi_configurator.py` | Configuratore interattivo ROI |
+| `camera_persone/config.py` | Configurazione rilevamento persone |
+| `camera_persone/rtsp_streamer.py` | Gestione stream RTSP |
+| `camera_persone/video_writer.py` | Gestione registrazione video |
+| `camera_conteggio/config.py` | Configurazione conteggio |
+| `camera_conteggio/counter.py` | Logica conteggio linea virtuale |
 | `test_onvif.py` | Utility per scoprire RTSP URL |
 | `test_ocr.py` | Test OCR su immagini singole |
 | `botsort_custom.yaml` | Configurazione BoT-SORT tracker |
@@ -183,7 +192,7 @@ python garage_checker/main.py
 ### 4. Rilevamento Persone
 
 ```bash
-python camera_persone.py
+python camera_persone/main.py
 ```
 
 **Funzionalità:**
@@ -198,13 +207,13 @@ python camera_persone.py
 ### 5. Conteggio Persone
 
 ```bash
-python camera_conteggio_persone.py
+python camera_conteggio/main.py
 ```
 
 **Funzionalità:**
 - Linea virtuale al 50% dell'altezza frame
 - Validazione crossing con storico posizione
-- Log dettagliati in `conteggio_log/passaggi.csv`
+- Log dettagliati in `camera_conteggio/conteggio_log/passaggi.csv`
 - Riepilogo Telegram ogni 60 secondi
 
 1. **Check-in:** Veicolo rilevato → log ENTRATA
@@ -332,7 +341,8 @@ from whitelist_manager import (
 - `video-ai-env/` (ambiente virtuale)
 - `targhe_auto/targhe_salvate/` (immagini catturate)
 - `targhe_auto/accessi_veicoli.csv` (log)
-- `conteggio_log/` (log conteggio)
+- `camera_conteggio/conteggio_log/` (log conteggio)
+- `camera_persone/video_salvati/` (video registrati)
 - `__pycache__`
 
 ---
