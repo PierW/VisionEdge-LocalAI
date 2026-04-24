@@ -79,15 +79,6 @@ def _variant_night_a(gray: np.ndarray) -> np.ndarray:
     return cv2.addWeighted(gamma, 1.3, blur, -0.3, 0)
 
 
-def _variant_night_b(gray: np.ndarray) -> np.ndarray:
-    """Notturna alternativa: denoising più aggressivo, senza gamma."""
-    denoised = cv2.bilateralFilter(gray, 9, 35, 35)
-    clahe    = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(4, 4))
-    enhanced = clahe.apply(denoised)
-    blur     = cv2.GaussianBlur(enhanced, (0, 0), 0.8)
-    return cv2.addWeighted(enhanced, 1.2, blur, -0.2, 0)
-
-
 # ─── Ensemble OCR ─────────────────────────────────────────────────────────────
 
 def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tuple[str, str, float, np.ndarray | None, str]:
