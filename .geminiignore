@@ -1,0 +1,25 @@
+.env
+
+# Python
+__pycache__/
+*.pyc
+
+# Virtual env
+video-ai-env/
+
+# Contatore
+conteggio_log/
+
+# Output immagini
+targhe_salvate/
+
+# Output video
+video_salvati/
+
+# Logs
+*.log
+*.csv
+whitelist.json
+
+# Mac
+.DS_Store
