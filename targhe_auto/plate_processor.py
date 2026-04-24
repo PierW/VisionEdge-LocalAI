@@ -90,7 +90,7 @@ def _variant_night_b(gray: np.ndarray) -> np.ndarray:
 
 # ─── Ensemble OCR ─────────────────────────────────────────────────────────────
 
-def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tuple[str, str, float, np.ndarray | None]:
+def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tuple[str, str, float, np.ndarray | None, str]:
     """
     Lancia OCR su due varianti preprocessate, ritorna il risultato migliore.
 
@@ -100,14 +100,15 @@ def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tup
     - Vince la variante con confidence più alta
     - I file temporanei vengono sempre cancellati nel blocco finally
 
-    Ritorna (testo_targa, nazione, confidence, variante_vincente) oppure ("", "", 0.0, None) se fallisce.
+    Ritorna (testo_targa, nazione, confidence, variante_vincente, tipo_variante) oppure ("", "", 0.0, None, "") se fallisce.
     """
     best_plate   = ""
     best_region  = ""
     best_conf    = 0.0
     best_variant: np.ndarray | None = None
+    best_type    = ""
 
-    for variant in (variant_a, variant_b):
+    for i, variant in enumerate((variant_a, variant_b)):
         tmp_path = None
         try:
             fd, tmp_path = tempfile.mkstemp(suffix=".png")
@@ -128,6 +129,7 @@ def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tup
                 best_region  = region
                 best_conf    = conf
                 best_variant = variant
+                best_type    = "originale" if i == 0 else "modificata"
 
         except Exception as e:
             print(f"⚠️ [ENSEMBLE] OCR error: {e}")
@@ -135,7 +137,7 @@ def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tup
             if tmp_path and os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-    return best_plate, best_region, best_conf, best_variant
+    return best_plate, best_region, best_conf, best_variant, best_type
 
 
 # ─── API pubblica ─────────────────────────────────────────────────────────────
@@ -153,8 +155,8 @@ def processa_targa(plate_crop_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray, 
     metrics = _analizza(gray)
 
     if _is_night(metrics):
-        # Di notte usiamo le versioni in bianco e nero potenziate (denoising, CLAHE)
-        return _variant_night_a(gray), _variant_night_b(gray), "notturna", metrics
+        # Notturna: variante A = crop originale upscalato (a colori), variante B = leggermente modificata (denoising + CLAHE)
+        return plate_up, _variant_night_a(gray), "notturna", metrics
     else:
         # DI GIORNO: 
         # Variante A -> riceve 'plate_up' (A COLORI)

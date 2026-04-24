@@ -44,6 +44,7 @@ veicoli_attivi      = {}
 targhe_lette_per_id = {}
 targa_per_id        = {}
 candidati_per_id    = {}  # { obj_id: [ {targa, nazione, conf, file_orig, file_proc}, ... ] }
+ultimo_ocr_per_id   = {}  # { obj_id: timestamp_ultimo_ocr } - per dilazionare acquisizione candidati
 notifiche_inviate   = set()
 action_eseguita     = set()
 
@@ -272,9 +273,14 @@ try:
                     candidati = candidati_per_id.get(obj_id, [])
                     num_candidati = len(candidati)
                     
+                    # Check timing: elabora solo se è passato abbastanza tempo dall'ultimo candidato
+                    tempo_ultimo_ocr = ultimo_ocr_per_id.get(obj_id, 0)
+                    tempo_trascorso = current_time - tempo_ultimo_ocr
+                    
                     da_elaborare = (not targa_ok and 
                                    num_candidati < cfg.MAX_CANDIDATI and 
-                                   tentativi_falliti < cfg.MAX_TENTATIVI_OCR)
+                                   tentativi_falliti < cfg.MAX_TENTATIVI_OCR and
+                                   tempo_trascorso >= cfg.OCR_FRAME_INTERVAL_SEC)
 
                 if da_elaborare:
                     x1, y1, x2, y2 = box
@@ -296,7 +302,7 @@ try:
                                 va, vb, modalita, metrics = processa_targa(plate_crop)
 
                                 # Ensemble OCR: 2 varianti preprocessate → vince la confidence più alta
-                                testo_targa, nazione, conf, variante_vincente = ocr_ensemble(ocr_model, va, vb)
+                                testo_targa, nazione, conf, variante_vincente, tipo_variante = ocr_ensemble(ocr_model, va, vb)
 
                                 if testo_targa:
                                     # Salva temporaneamente per debug/collezione
@@ -323,8 +329,9 @@ try:
                                             'modalita': modalita
                                         })
                                         num_candidati = len(candidati_per_id[obj_id])
+                                        ultimo_ocr_per_id[obj_id] = current_time  # Registra il timestamp di questo OCR
 
-                                    print(f"📸 [OCR/{modalita}] ID:{obj_id} | {testo_targa} ({num_candidati}/{cfg.MAX_CANDIDATI}) conf={conf:.2f}")
+                                    print(f"📸 [OCR/{modalita}] ID:{obj_id} | {testo_targa} ({num_candidati}/{cfg.MAX_CANDIDATI}) conf={conf:.2f} [{tipo_variante}]")
 
                                     # Se abbiamo raggiunto il numero desiderato, finalizziamo subito
                                     if num_candidati >= cfg.MAX_CANDIDATI:

@@ -28,6 +28,7 @@ CONF_TARGA        = 0.4
 TIMEOUT_VEICOLO   = 6
 MAX_TENTATIVI_OCR = 10
 MAX_CANDIDATI     = 7
+OCR_FRAME_INTERVAL_SEC = 0.3  # Tempo minimo (sec) tra acquisizioni di candidati per lo stesso veicolo (es. 0.3s ≈ 3 frame @ 10fps)
 PLATE_PAD_PX      = 15
 PLATE_UPSCALE     = 3
 
