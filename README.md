@@ -19,17 +19,72 @@ Sistema di monitoraggio video locale con AI per il rilevamento di persone e veic
 
 ## Struttura del Progetto
 
-### Moduli Principali
+Il sistema è composto da **4 script principali** indipendenti:
+
+### 1. targhe_auto/main.py - Rilevamento Veicoli con OCR
+Monitora veicoli in transito con riconoscimento targhe automatico.
+
+**Caratteristiche:**
+- Rilevamento veicoli (car, moto, bus, truck) con YOLOv8
+- Tracking con BoT-SORT (ID persistenti)
+- OCR targhe con preprocessing adattivo giorno/notte
+- Ensemble voting (2 varianti per massima accuratezza)
+- Whitelist con autorizzazioni
+- **Se un veicolo autorizzato entra, esegue uno script Python personalizzato**
+- Notifiche Telegram con bottoni per autorizzare/negare/skippare
+
+**Configurazione:** [targhe_auto/config.py](targhe_auto/config.py)
+
+---
+
+### 2. garage_checker/main.py - Monitoraggio Posti Auto (ROI)
+Monitora posti auto specifici nel garage senza OCR.
+
+**Caratteristiche:**
+- Rilevamento veicoli con YOLOv8
+- Zone ROI (Region of Interest) configurabili
+- Check-in/check-out basato su timeout
+- Nessun OCR, solo rilevamento presenza
+- Notifiche Telegram
+
+**Configurazione:** [garage_checker/config.py](garage_checker/config.py)
+
+---
+
+### 3. camera_persone.py - Rilevamento Persone
+Rileva persone nella scena video con registrazione.
+
+**Caratteristiche:**
+- Rilevamento YOLOv8 classe "person"
+- Registrazione video automatica quando persona rilevata
+- Snapshot inviato su Telegram
+- Chiusura registrazione dopo 2s di assenza
+- Indicatori REC/LIVE
+
+---
+
+### 4. camera_conteggio_persone.py - Conteggio Persone
+Conta persone che attraversano una linea virtuale.
+
+**Caratteristicä:**
+- Linea virtuale configurabile (default 50% altezza)
+- Validazione crossing con storico posizione
+- Check-in (entrata) e Check-out (uscita)
+- Log dettagliati in CSV
+- Riepilogo Telegram ogni 60 secondi
+
+---
+
+### File di Supporto
 
 | File/Directory | Descrizione |
 |----------------|-------------|
-| `camera_persone.py` | Rilevamento persone con registrazione video e Telegram |
-| `camera_conteggio_persone.py` | Conteggio persone con linea virtuale |
-| `targhe_auto/main.py` | Tracking veicoli + OCR targhe + whitelist + Telegram |
-| `targhe_auto/config.py` | Configurazione modulare |
+| `targhe_auto/config.py` | Configurazione (RTSP, soglie, timeout) |
 | `targhe_auto/plate_processor.py` | Preprocessing adattivo + ensemble OCR |
 | `targhe_auto/telegram_bot.py` | Bot Telegram per autorizzazione |
 | `targhe_auto/whitelist_manager.py` | Gestione database veicoli |
+| `garage_checker/roi_detector.py` | Rilevamento ROI |
+| `garage_checker/roi_configurator.py` | Configuratore interattivo ROI |
 | `test_onvif.py` | Utility per scoprire RTSP URL |
 | `test_ocr.py` | Test OCR su immagini singole |
 | `botsort_custom.yaml` | Configurazione BoT-SORT tracker |
@@ -90,7 +145,42 @@ pip install -r requirements.txt
 # Configura .env con TELEGRAM_TOKEN e TELEGRAM_CHAT_ID
 ```
 
-### 2. Rilevamento Persone
+### 2. Rilevamento Veicoli con OCR
+
+```bash
+python targhe_auto/main.py
+```
+
+**Flusso:**
+1. Veicolo rilevato → Check-in
+2. OCR targhe con ensemble voting
+3. Controllo whitelist:
+   - ✅ Autorizzato → esegue script Python + notifica
+   - ❌ Non autorizzato → alert Telegram
+   - ❓ Sconosciuto → alert con bottoni (Autorizza/Nega/Skippa/Modifica)
+4. Timeout 6s → Check-out
+
+**Telegram Bot:**
+- `/stato` → veicoli nel garage
+- Alert sconosciuta → 4 bottoni interattivi
+
+---
+
+### 3. Monitoraggio Posti Auto (ROI)
+
+```bash
+python garage_checker/main.py
+```
+
+**Primo avvio:** Configurazione interattiva delle ROI
+**Funzionalità:**
+- Zone ROI predefinite
+- Check-in/check-out automatico
+- Notifiche Telegram
+
+---
+
+### 4. Rilevamento Persone
 
 ```bash
 python camera_persone.py
@@ -99,11 +189,13 @@ python camera_persone.py
 **Funzionalità:**
 - Detection YOLOv8 person class
 - Registrazione video quando persona rilevata
-- Chiusura automatico dopo 2s di assenza
+- Chiusura automatica dopo 2s di assenza
 - Snapshot inviato su Telegram
 - Indicatori REC/LIVE
 
-### 3. Conteggio Persone
+---
+
+### 5. Conteggio Persone
 
 ```bash
 python camera_conteggio_persone.py
@@ -114,14 +206,6 @@ python camera_conteggio_persone.py
 - Validazione crossing con storico posizione
 - Log dettagliati in `conteggio_log/passaggi.csv`
 - Riepilogo Telegram ogni 60 secondi
-
-### 4. Tracking Veicoli e OCR Targhe
-
-```bash
-python targhe_auto/main.py
-```
-
-**Flusso:**
 
 1. **Check-in:** Veicolo rilevato → log ENTRATA
 2. **OCR:** Max 4 candidati per veicolo → ensemble voting
