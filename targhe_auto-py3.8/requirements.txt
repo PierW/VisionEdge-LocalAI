@@ -2,7 +2,7 @@
 # Basati sulle versioni stabili supportate da Py3.8
 
 ultralytics==8.2.0
-fast-plate-ocr==1.1.0
+fast-plate-ocr==0.3.0
 opencv-python==4.8.0.74
 opencv-python-headless==4.8.0.74
 python-telegram-bot==20.8
