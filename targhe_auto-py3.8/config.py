@@ -19,7 +19,7 @@ RTSP_URL = os.getenv("RTSP_URL_TARGHE", "rtsp://192.168.1.218:554/realmonitor?ch
 _ROOT          = os.path.join(os.path.dirname(__file__), '..')
 MODEL_VEICOLI  = os.path.join(_ROOT, "yolov8n.pt")
 MODEL_TARGHE   = os.path.join(_ROOT, "yolov8n_plate.pt")
-MODEL_OCR      = "cct-xs-v2-global-model"
+# MODEL_OCR rimosso: usiamo easyocr via ocr_compat.py invece di fast_plate_ocr
 TRACKER_CONFIG = os.path.join(_ROOT, "botsort_custom.yaml")
 
 # ─── Logica rilevamento ───────────────────────────────────────────────────────

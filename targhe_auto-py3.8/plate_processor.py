@@ -4,15 +4,15 @@ targhe_auto/plate_processor.py
 Pre-processing adattivo giorno/notte + ensemble OCR su 2 varianti.
 
 REGOLA BASE:
-  Passiamo sempre un file path al modello OCR — è la libreria stessa
-  a leggere, convertire in grayscale e ridimensionare. Zero ambiguità
-  sul formato del tensore, zero dipendenza dalla versione della cache ONNX.
+  Passiamo sempre un file path al modello OCR wrapper (ocr_compat.py/easyocr).
+  Il wrapper gestisce lettura, grayscale e resize internamente.
+  Zero ambiguità sul formato del tensore.
 
 ENSEMBLE:
   Processiamo il crop con 2 varianti di preprocessing, salviamo entrambe
   in file temporanei distinti, lanciamo OCR su entrambe con
   return_confidence=True, teniamo il risultato con mean(char_probs) più alto.
-  Overhead reale: ~1 OCR extra su un crop piccolo (~3-5ms su MPS).
+  Overhead reale: ~1 OCR extra su un crop piccolo (~3-5ms su CPU).
 
 RILEVAMENTO GIORNO/NOTTE — criterio triplo (basta uno):
   brightness < 80  → immagine scura
@@ -23,6 +23,7 @@ RILEVAMENTO GIORNO/NOTTE — criterio triplo (basta uno):
 
 import os
 import tempfile
+from typing import Tuple, Optional
 
 import cv2
 import numpy as np
@@ -81,7 +82,7 @@ def _variant_night_a(gray: np.ndarray) -> np.ndarray:
 
 # ─── Ensemble OCR ─────────────────────────────────────────────────────────────
 
-def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tuple[str, str, float, np.ndarray | None, str]:
+def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> Tuple[str, str, float, Optional[np.ndarray], str]:
     """
     Lancia OCR su due varianti preprocessate, ritorna il risultato migliore.
 
@@ -96,7 +97,7 @@ def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tup
     best_plate   = ""
     best_region  = ""
     best_conf    = 0.0
-    best_variant: np.ndarray | None = None
+    best_variant: Optional[np.ndarray] = None
     best_type    = ""
 
     for i, variant in enumerate((variant_a, variant_b)):
@@ -133,7 +134,7 @@ def ocr_ensemble(ocr_model, variant_a: np.ndarray, variant_b: np.ndarray) -> tup
 
 # ─── API pubblica ─────────────────────────────────────────────────────────────
 
-def processa_targa(plate_crop_bgr: np.ndarray) -> tuple[np.ndarray, np.ndarray, str, dict]:
+def processa_targa(plate_crop_bgr: np.ndarray) -> Tuple[np.ndarray, np.ndarray, str, dict]:
     # 1. Upscale (mantenendo i colori BGR)
     plate_up = cv2.resize(
         plate_crop_bgr, None,

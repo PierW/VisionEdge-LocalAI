@@ -1,4 +1,3 @@
-import typing
 """
 targhe_auto/whitelist_manager.py
 Gestione anagrafica veicoli — legge/scrive whitelist.json.
@@ -18,6 +17,7 @@ Struttura JSON:
 import json
 import os
 from datetime import datetime
+from typing import Optional, List
 
 # Il percorso viene impostato da config.py; fallback locale per comodità
 try:
@@ -50,7 +50,7 @@ def is_authorized(targa: str) -> bool:
     return entry is not None and entry.get("autorizzato", False)
 
 
-def get_entry(targa: str) -> dict | None:
+def get_entry(targa: str) -> Optional[dict]:
     return _load().get(targa)
 
 
@@ -90,5 +90,5 @@ def update_ultima_uscita(targa: str):
         _save(db)
 
 
-def list_all() -> typing.List[dict]:
+def list_all() -> List[dict]:
     return list(_load().values())

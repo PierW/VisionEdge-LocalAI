@@ -16,7 +16,7 @@ import traceback
 from datetime import datetime
 
 from ultralytics import YOLO
-from fast_plate_ocr import LicensePlateRecognizer
+from ocr_compat import LicensePlateRecognizer
 
 sys.path.insert(0, os.path.dirname(__file__))
 
@@ -32,9 +32,9 @@ print(f"🔧 Device: {cfg.DEVICE.upper()}")
 model_veicoli = YOLO(cfg.MODEL_VEICOLI).to(cfg.DEVICE)
 model_targhe  = YOLO(cfg.MODEL_TARGHE).to(cfg.DEVICE)
 
-print("⏳ Caricamento modello OCR...")
-ocr_model = LicensePlateRecognizer(cfg.MODEL_OCR)
-print("✅ OCR caricato!")
+print("⏳ Caricamento modello EasyOCR...")
+ocr_model = LicensePlateRecognizer()
+print("✅ EasyOCR caricato!")
 
 # ==========================================
 # STATO GLOBALE

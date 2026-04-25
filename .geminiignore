@@ -23,3 +23,4 @@ whitelist.json
 
 # Mac
 .DS_Store
+.idea/

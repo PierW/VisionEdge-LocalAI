@@ -1,4 +1,3 @@
-import typing
 """
 targhe_auto/telegram_bot.py
 
@@ -18,6 +17,8 @@ import threading
 import logging
 import time
 import os
+from typing import Dict, Set, Optional
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -62,24 +63,24 @@ TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # ─── Stato conversazioni ─────────────────────────────────────────────────────
 # Targa in attesa del nome dopo Autorizza/Nega: { targa: autorizzato_bool }
-_pending_name: typing.Dict[str, bool] = {}
+_pending_name: Dict[str, bool] = {}
 
 # Targa in attesa di correzione: { "correction": targa_originale }
 # Usiamo una chiave fissa perché c'è sempre al massimo una correzione attiva
-_pending_correction: typing.Dict[str, str] = {}
+_pending_correction: Dict[str, str] = {}
 
 # Targhe skippate per questa sessione
-_skippate: typing.Set[str] = set()
+_skippate: Set[str] = set()
 
 # ─── Callback registrate dal main loop ───────────────────────────────────────
 _on_registered_callback = None   # fn(targa, nome, autorizzato)
 _on_skip_callback       = None   # fn(targa)
 _on_correction_callback = None   # fn(targa_originale, targa_corretta)
-_get_stato_callback     = None   # fn() → typing.Dict[obj_id, targa|None]
+_get_stato_callback     = None   # fn() -> Dict[int, Optional[str]]
 
-_app: Application | None = None
-_loop: asyncio.AbstractEventLoop | None = None
-_bot_thread: threading.Thread | None = None
+_app: Optional[Application] = None
+_loop: Optional[asyncio.AbstractEventLoop] = None
+_bot_thread: Optional[threading.Thread] = None
 
 
 # ─── Registrazione callback ───────────────────────────────────────────────────
@@ -272,7 +273,7 @@ async def _error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 
 # ─── API pubblica ─────────────────────────────────────────────────────────────
 
-def send_unknown_plate_alert(targa: str, photo_path: str | None = None):
+def send_unknown_plate_alert(targa: str, photo_path: Optional[str] = None):
     """Invia foto (se disponibile) + bottoni. Thread-safe."""
     if _loop is None or _app is None:
         print("⚠️ [TG] Bot non avviato, skip alert.")
